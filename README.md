@@ -125,4 +125,4 @@ fn main() -> anyhow::Result<()> {
 
 ## License
 
-MIT / Apache-2.0
+Apache-2.0
