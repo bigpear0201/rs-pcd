@@ -1,0 +1,22 @@
+[package]
+name = "pcd-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+byteorder = "1.5.0"
+bytes = "1.11.0"
+flate2 = "1.1.5"
+lzf = "1.0.0"
+memmap2 = { version = "0.9.9", optional = true }
+rayon = { version = "1.11.0", optional = true }
+thiserror = "2.0.17"
+
+[features]
+memmap2 = ["dep:memmap2"]
+rayon = ["dep:rayon"]
+
+[dev-dependencies]
+anyhow = "1.0.100"
+rand = "0.9.2"
+tempfile = "3.24.0"
