@@ -46,11 +46,7 @@ pub struct PcdReader<R: BufRead> {
 
 impl<R: BufRead> PcdReader<R> {
     pub fn new(mut reader: R) -> Result<Self> {
-        let (header, _bytes_read) = {
-            let header = parse_header(&mut reader)?;
-            (header, 0)
-        };
-
+        let header = parse_header(&mut reader)?;
         let layout = PcdLayout::from_header(&header)?;
 
         Ok(PcdReader {
@@ -64,6 +60,12 @@ impl<R: BufRead> PcdReader<R> {
 }
 
 impl PcdReader<BufReader<File>> {
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        Self::new(reader)
+    }
+
     #[cfg(feature = "memmap2")]
     pub fn from_path_mmap<P: AsRef<Path>>(path: P) -> Result<Self> {
         let file = File::open(path)?;

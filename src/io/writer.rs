@@ -383,15 +383,19 @@ impl<W: Write> PcdWriter<W> {
         }
 
         let uncompressed_size = uncompressed_data.len();
-        let compressed_data = lzf::compress(&uncompressed_data)
-            .map_err(|e| PcdError::Other(format!("Compression failed: {:?}", e)))?;
-        let compressed_size = compressed_data.len();
+        let compressed_result = lzf::compress(&uncompressed_data);
+
+        let (final_compressed_size, final_data) = match compressed_result {
+            Ok(data) => (data.len(), data),
+            Err(lzf::LzfError::NoCompressionPossible) => (uncompressed_size, uncompressed_data),
+            Err(e) => return Err(PcdError::Other(format!("Compression failed: {:?}", e))),
+        };
 
         self.writer
-            .write_u32::<LittleEndian>(compressed_size as u32)?;
+            .write_u32::<LittleEndian>(final_compressed_size as u32)?;
         self.writer
             .write_u32::<LittleEndian>(uncompressed_size as u32)?;
-        self.writer.write_all(&compressed_data)?;
+        self.writer.write_all(&final_data)?;
 
         Ok(())
     }
