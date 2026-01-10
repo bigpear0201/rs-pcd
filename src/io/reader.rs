@@ -25,7 +25,6 @@ use crate::storage::PointBlock;
 #[cfg(feature = "memmap2")]
 use memmap2::Mmap;
 use std::fs::File;
-#[cfg(feature = "memmap2")]
 use std::io::Cursor;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -56,6 +55,16 @@ impl<R: BufRead> PcdReader<R> {
             #[cfg(feature = "memmap2")]
             start_offset: 0,
         })
+    }
+}
+
+/// Create a PcdReader directly from a byte slice.
+/// Useful for embedded resources, network data, or in-memory buffers.
+impl<'a> PcdReader<BufReader<Cursor<&'a [u8]>>> {
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self> {
+        let cursor = Cursor::new(data);
+        let reader = BufReader::new(cursor);
+        Self::new(reader)
     }
 }
 

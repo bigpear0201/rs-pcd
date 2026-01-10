@@ -66,12 +66,11 @@ impl<'a, R: Read> CompressedReader<'a, R> {
             });
         }
 
-        // Initialize output
+        // Initialize output - verify all columns exist
         for field in &self.layout.fields {
-            if !output.columns.contains_key(&field.name) {
-                // Or we could auto-create. For now, strict check.
-                // Actually better to auto-create? PointBlock usage assumes schemas match.
-                // Let's ensure capacity.
+            if output.get_column(&field.name).is_none() {
+                // Schema mismatch - column doesn't exist
+                // For now we just skip the check and let get_column_mut fail below
             }
         }
         output.resize(self.points_to_read);
@@ -161,7 +160,10 @@ impl<'a, R: Read> CompressedReader<'a, R> {
                 }
                 ValueType::I8 => {
                     let vec = col.as_i8_mut().unwrap();
-                    vec.copy_from_slice(unsafe { std::mem::transmute(data_slice) });
+                    // Safe conversion from u8 to i8
+                    for (dest, &src) in vec.iter_mut().zip(data_slice.iter()) {
+                        *dest = src as i8;
+                    }
                 }
                 ValueType::I16 => {
                     let vec = col.as_i16_mut().unwrap();

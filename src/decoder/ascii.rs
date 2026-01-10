@@ -41,7 +41,7 @@ impl<'a, R: BufRead> AsciiReader<'a, R> {
 
         // Ensure all columns exist
         for name in &required_cols {
-            if !output.columns.contains_key(name) {
+            if output.get_column(name).is_none() {
                 return Err(PcdError::LayoutMismatch {
                     expected: 0,
                     got: 0,

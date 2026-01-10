@@ -57,6 +57,7 @@ impl Column {
         }
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         match self {
             Column::U8(v) => v.len(),
@@ -68,6 +69,11 @@ impl Column {
             Column::F32(v) => v.len(),
             Column::F64(v) => v.len(),
         }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn as_f32_slice(&self) -> Option<&[f32]> {
@@ -211,41 +217,112 @@ impl Column {
     }
 }
 
-#[derive(Debug, Default)]
+/// SoA (Structure of Arrays) storage for point cloud data.
+/// 
+/// Internally uses Vec<Column> for O(1) index-based access, with a HashMap
+/// for name-based lookups. This provides efficient iteration while maintaining
+/// backwards-compatible named access.
+#[derive(Debug)]
 pub struct PointBlock {
-    pub columns: HashMap<String, Column>,
+    /// Column data stored in schema order for O(1) indexed access
+    columns: Vec<Column>,
+    /// Field names in schema order
+    schema: Vec<String>,
+    /// Name to index mapping for backwards-compatible get_column(name) API
+    name_to_index: HashMap<String, usize>,
+    /// Number of points
     pub len: usize,
+}
+
+impl Default for PointBlock {
+    fn default() -> Self {
+        Self {
+            columns: Vec::new(),
+            schema: Vec::new(),
+            name_to_index: HashMap::new(),
+            len: 0,
+        }
+    }
 }
 
 impl PointBlock {
     pub fn new(schema: &Vec<(String, ValueType)>, capacity: usize) -> Self {
-        let mut columns = HashMap::new();
-        for (name, dtype) in schema {
-            columns.insert(name.clone(), Column::new(*dtype, capacity));
+        let mut columns = Vec::with_capacity(schema.len());
+        let mut names = Vec::with_capacity(schema.len());
+        let mut name_to_index = HashMap::with_capacity(schema.len());
+
+        for (i, (name, dtype)) in schema.iter().enumerate() {
+            columns.push(Column::new(*dtype, capacity));
+            names.push(name.clone());
+            name_to_index.insert(name.clone(), i);
         }
+
         PointBlock {
             columns,
+            schema: names,
+            name_to_index,
             len: capacity,
         }
     }
 
     pub fn resize(&mut self, new_len: usize) {
-        for col in self.columns.values_mut() {
+        for col in &mut self.columns {
             col.resize(new_len);
         }
         self.len = new_len;
     }
 
+    /// Get a column by name (backwards-compatible API).
+    /// For performance-critical code, prefer `get_column_by_index`.
+    #[must_use]
     pub fn get_column(&self, name: &str) -> Option<&Column> {
-        self.columns.get(name)
+        self.name_to_index.get(name).map(|&idx| &self.columns[idx])
     }
 
+    /// Get a mutable column by name (backwards-compatible API).
+    /// For performance-critical code, prefer `get_column_mut_by_index`.
     pub fn get_column_mut(&mut self, name: &str) -> Option<&mut Column> {
-        self.columns.get_mut(name)
+        if let Some(&idx) = self.name_to_index.get(name) {
+            Some(&mut self.columns[idx])
+        } else {
+            None
+        }
+    }
+
+    /// O(1) indexed access to a column.
+    #[inline]
+    #[must_use]
+    pub fn get_column_by_index(&self, index: usize) -> Option<&Column> {
+        self.columns.get(index)
+    }
+
+    /// O(1) mutable indexed access to a column.
+    #[inline]
+    pub fn get_column_mut_by_index(&mut self, index: usize) -> Option<&mut Column> {
+        self.columns.get_mut(index)
+    }
+
+    /// Get the index of a column by name.
+    #[inline]
+    #[must_use]
+    pub fn get_column_index(&self, name: &str) -> Option<usize> {
+        self.name_to_index.get(name).copied()
+    }
+
+    /// Get the schema (field names in order).
+    #[must_use]
+    pub fn schema(&self) -> &[String] {
+        &self.schema
+    }
+
+    /// Number of columns.
+    #[must_use]
+    pub fn num_columns(&self) -> usize {
+        self.columns.len()
     }
 
     /// Optimized: Get multiple mutable columns simultaneously.
-    /// Returns error if any column is missing or if names contain duplicates.
+    /// Returns None if any column is missing or if names contain duplicates.
     /// This avoids O(N*M) lookup inside tight loops.
     pub fn get_columns_mut(&mut self, names: &[String]) -> Option<Vec<&mut Column>> {
         // Simple check for duplicates (O(M^2) but M is small, e.g. < 10)
@@ -257,27 +334,72 @@ impl PointBlock {
             }
         }
 
-        // We can't use `get_many_mut` (unstable) yet, so we iterate and use unsafe or separate scopes.
-        // Actually, since this is for a specific set of keys, we can just iterate self.columns if we want,
-        // but self.columns is HashMap.
-        // Safe approach: Split borrow? No, HashMap doesn't support easy split borrow by key.
-        // We will use raw pointers here to bypass borrow checker, BUT we verify uniqueness of keys above.
-
-        let mut ptrs = Vec::with_capacity(names.len());
+        // Get indices for all requested names
+        let mut indices = Vec::with_capacity(names.len());
         for name in names {
-            if let Some(col) = self.columns.get_mut(name) {
-                ptrs.push(col as *mut Column);
+            if let Some(&idx) = self.name_to_index.get(name) {
+                indices.push(idx);
             } else {
                 return None; // Missing column
             }
         }
 
-        // Reconstruct mutable references
-        // Safety: We verified all keys are unique, so all pointers point to disjoint memory.
+        // Use raw pointers to bypass borrow checker for multiple mutable references
+        // Safety: We verified all indices are unique above, so all pointers point to disjoint memory.
         let mut results = Vec::with_capacity(names.len());
-        for ptr in ptrs {
-            unsafe { results.push(&mut *ptr) };
+        let base_ptr = self.columns.as_mut_ptr();
+        for idx in indices {
+            unsafe {
+                results.push(&mut *base_ptr.add(idx));
+            }
         }
         Some(results)
+    }
+
+    /// Access underlying columns slice (for iteration).
+    #[must_use]
+    pub fn columns(&self) -> &[Column] {
+        &self.columns
+    }
+
+    /// Access underlying columns mutably.
+    pub fn columns_mut(&mut self) -> &mut [Column] {
+        &mut self.columns
+    }
+
+    // ========================
+    // Typed Convenience Accessors
+    // ========================
+
+    /// Get XYZ coordinates as f32 slices.
+    /// Returns None if any of x, y, z columns are missing or not F32.
+    #[must_use]
+    pub fn xyz(&self) -> Option<(&[f32], &[f32], &[f32])> {
+        let x = self.get_column("x")?.as_f32()?;
+        let y = self.get_column("y")?.as_f32()?;
+        let z = self.get_column("z")?.as_f32()?;
+        Some((x, y, z))
+    }
+
+    /// Get XYZ + intensity as f32 slices.
+    /// Returns None if any column is missing or has wrong type.
+    #[must_use]
+    pub fn xyzi(&self) -> Option<(&[f32], &[f32], &[f32], &[f32])> {
+        let x = self.get_column("x")?.as_f32()?;
+        let y = self.get_column("y")?.as_f32()?;
+        let z = self.get_column("z")?.as_f32()?;
+        let i = self.get_column("intensity")?.as_f32()?;
+        Some((x, y, z, i))
+    }
+
+    /// Get XYZ + RGB (packed as u32) slices.
+    /// Returns None if any column is missing or has wrong type.
+    #[must_use]
+    pub fn xyzrgb(&self) -> Option<(&[f32], &[f32], &[f32], &[u32])> {
+        let x = self.get_column("x")?.as_f32()?;
+        let y = self.get_column("y")?.as_f32()?;
+        let z = self.get_column("z")?.as_f32()?;
+        let rgb = self.get_column("rgb")?.as_u32()?;
+        Some((x, y, z, rgb))
     }
 }
