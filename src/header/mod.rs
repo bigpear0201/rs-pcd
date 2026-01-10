@@ -16,7 +16,9 @@ use crate::error::{PcdError, Result};
 use std::str::FromStr;
 
 mod parser;
+mod builder;
 pub use parser::parse_header;
+pub use builder::PcdHeaderBuilder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DataFormat {

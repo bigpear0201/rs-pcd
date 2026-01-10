@@ -1,7 +1,7 @@
 [package]
 name = "rs-pcd"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 description = "is a modern, pure-Rust library designed for parsing and processing PCD files with a focus on speed, safety, and correctness. It is built for high-throughput applications like autonomous driving and 3D perception."
 license = "Apache-2.0"
 repository = "https://github.com/bigpear0201/rs-pcd"
