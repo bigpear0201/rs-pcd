@@ -402,4 +402,52 @@ impl PointBlock {
         let rgb = self.get_column("rgb")?.as_u32()?;
         Some((x, y, z, rgb))
     }
+
+    /// Get XYZ + intensity + ring (common LiDAR format).
+    /// Returns None if any column is missing or has wrong type.
+    /// - intensity: F32
+    /// - ring: U16
+    #[must_use]
+    pub fn xyzir(&self) -> Option<(&[f32], &[f32], &[f32], &[f32], &[u16])> {
+        let x = self.get_column("x")?.as_f32()?;
+        let y = self.get_column("y")?.as_f32()?;
+        let z = self.get_column("z")?.as_f32()?;
+        let intensity = self.get_column("intensity")?.as_f32()?;
+        let ring = self.get_column("ring")?.as_u16()?;
+        Some((x, y, z, intensity, ring))
+    }
+
+    /// Get XYZ + intensity + ring + timestamp (full LiDAR format).
+    /// Returns None if any column is missing or has wrong type.
+    /// - intensity: F32
+    /// - ring: U16
+    /// - timestamp: F64
+    #[must_use]
+    pub fn xyzirt(&self) -> Option<(&[f32], &[f32], &[f32], &[f32], &[u16], &[f64])> {
+        let x = self.get_column("x")?.as_f32()?;
+        let y = self.get_column("y")?.as_f32()?;
+        let z = self.get_column("z")?.as_f32()?;
+        let intensity = self.get_column("intensity")?.as_f32()?;
+        let ring = self.get_column("ring")?.as_u16()?;
+        let timestamp = self.get_column("timestamp")?.as_f64()?;
+        Some((x, y, z, intensity, ring, timestamp))
+    }
+
+    /// Get XYZIRT + id (LiDAR format with point ID/label).
+    /// Returns None if any column is missing or has wrong type.
+    /// - intensity: F32
+    /// - ring: U16
+    /// - timestamp: F64
+    /// - id: U32
+    #[must_use]
+    pub fn xyzirt_id(&self) -> Option<(&[f32], &[f32], &[f32], &[f32], &[u16], &[f64], &[u32])> {
+        let x = self.get_column("x")?.as_f32()?;
+        let y = self.get_column("y")?.as_f32()?;
+        let z = self.get_column("z")?.as_f32()?;
+        let intensity = self.get_column("intensity")?.as_f32()?;
+        let ring = self.get_column("ring")?.as_u16()?;
+        let timestamp = self.get_column("timestamp")?.as_f64()?;
+        let id = self.get_column("id")?.as_u32()?;
+        Some((x, y, z, intensity, ring, timestamp, id))
+    }
 }
