@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Borrowed view types for zero-copy point cloud access.
+//!
+//! **Note**: This module is a placeholder for future mmap-backed views.
+//! Consider using `PointBlock` with typed accessors (`xyz()`, `xyzirt()`, etc.)
+//! for current use cases.
+
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy)]
@@ -27,6 +33,7 @@ pub enum ColumnView<'a> {
 }
 
 impl<'a> ColumnView<'a> {
+    #[must_use]
     pub fn len(&self) -> usize {
         match self {
             ColumnView::U8(v) => v.len(),
@@ -39,6 +46,11 @@ impl<'a> ColumnView<'a> {
             ColumnView::F64(v) => v.len(),
         }
     }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 pub struct PointView<'a> {
@@ -46,7 +58,14 @@ pub struct PointView<'a> {
     pub len: usize,
 }
 
+impl<'a> Default for PointView<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> PointView<'a> {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             columns: HashMap::new(),

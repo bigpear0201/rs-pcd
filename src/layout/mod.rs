@@ -40,7 +40,7 @@ impl PcdLayout {
             let type_char = header
                 .types
                 .get(i)
-                .ok_or_else(|| PcdError::LayoutMismatch {
+                .ok_or(PcdError::LayoutMismatch {
                     expected: header.fields.len(),
                     got: i,
                 })?;
@@ -48,7 +48,7 @@ impl PcdLayout {
             let size_in_header = *header
                 .sizes
                 .get(i)
-                .ok_or_else(|| PcdError::LayoutMismatch {
+                .ok_or(PcdError::LayoutMismatch {
                     expected: header.fields.len(),
                     got: i,
                 })?;

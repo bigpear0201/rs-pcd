@@ -55,7 +55,7 @@ fn test_large_file_binary_mmap_rayon() {
         let block = reader.read_all().expect("Failed to read all");
 
         assert_eq!(block.len, points);
-        let x_col = block.get_column("x").unwrap().as_f32_slice().unwrap();
+        let x_col = block.get_column("x").unwrap().as_f32().unwrap();
         assert_eq!(x_col[123], 123.0);
         assert_eq!(x_col[points - 1], (points - 1) as f32);
     }

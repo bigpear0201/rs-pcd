@@ -66,7 +66,7 @@ fn test_parse_ascii() {
 
     assert_eq!(block.len, 2);
 
-    let x_col = block.get_column("x").unwrap().as_f32_slice().unwrap();
+    let x_col = block.get_column("x").unwrap().as_f32().unwrap();
     assert_eq!(x_col[0], 0.1);
     assert_eq!(x_col[1], 1.1);
 }
@@ -88,7 +88,7 @@ fn test_parse_binary() {
     let path = file.path();
     let block = read_pcd_file(path).expect("Failed to parse binary pcd");
 
-    let x_col = block.get_column("x").unwrap().as_f32_slice().unwrap();
+    let x_col = block.get_column("x").unwrap().as_f32().unwrap();
     assert_eq!(x_col[0], 42.0);
     assert_eq!(x_col[1], 123.0);
 }

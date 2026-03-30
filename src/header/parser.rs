@@ -173,7 +173,7 @@ fn validate_header(header: &PcdHeader, line: usize) -> Result<()> {
         // We should move this logic to the main parser loop before calling validate_header.
         return Err(PcdError::InvalidHeader {
             line,
-            msg: format!("Counts vector empty but fields present (logic error in parser)"),
+            msg: "Counts vector empty but fields present (logic error in parser)".to_string(),
         });
     } else if header.counts.len() != header.fields.len() {
         return Err(PcdError::InvalidHeader {

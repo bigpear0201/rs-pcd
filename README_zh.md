@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
     
     // 方法 1: 通过列名访问
     if let Some(x_col) = block.get_column("x") {
-        if let Some(x_values) = x_col.as_f32_slice() {
+        if let Some(x_values) = x_col.as_f32() {
             println!("第一个点的 X 坐标: {}", x_values[0]);
         }
     }

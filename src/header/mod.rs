@@ -15,10 +15,10 @@
 use crate::error::{PcdError, Result};
 use std::str::FromStr;
 
-mod parser;
 mod builder;
-pub use parser::parse_header;
+mod parser;
 pub use builder::PcdHeaderBuilder;
+pub use parser::parse_header;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DataFormat {
@@ -54,12 +54,40 @@ pub enum ValueType {
 }
 
 impl ValueType {
+    #[inline]
+    #[must_use]
     pub fn size(&self) -> usize {
         match self {
             ValueType::U8 | ValueType::I8 => 1,
             ValueType::U16 | ValueType::I16 => 2,
             ValueType::U32 | ValueType::I32 | ValueType::F32 => 4,
             ValueType::F64 => 8,
+        }
+    }
+
+    /// Convert from PCD type char + size to ValueType.
+    pub fn from_type_and_size(type_char: char, size: usize) -> Result<Self> {
+        match (type_char, size) {
+            ('I', 1) => Ok(ValueType::I8),
+            ('I', 2) => Ok(ValueType::I16),
+            ('I', 4) => Ok(ValueType::I32),
+            ('U', 1) => Ok(ValueType::U8),
+            ('U', 2) => Ok(ValueType::U16),
+            ('U', 4) => Ok(ValueType::U32),
+            ('F', 4) => Ok(ValueType::F32),
+            ('F', 8) => Ok(ValueType::F64),
+            _ => Err(PcdError::UnsupportedType(format!("{}{}", type_char, size))),
+        }
+    }
+
+    /// Convert to PCD type character ('F', 'U', 'I').
+    #[inline]
+    #[must_use]
+    pub fn type_char(&self) -> char {
+        match self {
+            ValueType::I8 | ValueType::I16 | ValueType::I32 => 'I',
+            ValueType::U8 | ValueType::U16 | ValueType::U32 => 'U',
+            ValueType::F32 | ValueType::F64 => 'F',
         }
     }
 }
@@ -79,22 +107,29 @@ pub struct PcdHeader {
 }
 
 impl PcdHeader {
+    #[inline]
+    #[must_use]
     pub fn is_organized(&self) -> bool {
         self.height > 1
     }
 
+    /// Compute the per-point stride in bytes (sum of size * count for all fields).
+    #[must_use]
     pub fn point_step(&self) -> usize {
-        self.sizes.iter().sum() // Simplified; actual stride might handle padding if counts > 1? Standard PCD usually tightly packed?
-        // Actually, PCD spec says "SIZE is the size of each dimension in bytes".
-        // "COUNT is the number of elements in each dimension."
-        // Point step is usually sum(size * count).
-    }
-
-    pub fn total_point_step(&self) -> usize {
         self.sizes
             .iter()
             .zip(self.counts.iter())
             .map(|(size, count)| size * count)
             .sum()
+    }
+
+    /// Derive ValueType for each field from the raw types/sizes arrays.
+    /// Returns Err if any (type, size) combination is unsupported.
+    pub fn value_types(&self) -> Result<Vec<ValueType>> {
+        self.types
+            .iter()
+            .zip(self.sizes.iter())
+            .map(|(&t, &s)| ValueType::from_type_and_size(t, s))
+            .collect()
     }
 }

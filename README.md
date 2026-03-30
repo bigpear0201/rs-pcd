@@ -70,7 +70,7 @@ fn main() -> anyhow::Result<()> {
     
     // Method 1: Access by column name
     if let Some(x_col) = block.get_column("x") {
-        if let Some(x_values) = x_col.as_f32_slice() {
+        if let Some(x_values) = x_col.as_f32() {
             println!("First X: {}", x_values[0]);
         }
     }

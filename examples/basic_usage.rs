@@ -51,7 +51,7 @@ fn main() -> Result<()> {
 
     // Inspect specific columns
     if let Some(x_col) = block.get_column("x") {
-        if let Some(data) = x_col.as_f32_slice() {
+        if let Some(data) = x_col.as_f32() {
             println!("First point X: {:.4}", data[0]);
             println!("Last point X:  {:.4}", data[data.len() - 1]);
         }
