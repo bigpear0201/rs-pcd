@@ -20,6 +20,7 @@ pub mod binary;
 #[cfg(feature = "rayon")]
 pub mod binary_par;
 pub mod compressed;
+mod slice;
 
 pub trait PcdDecoder {
     fn decode(&mut self, output: &mut PointBlock) -> Result<()>;

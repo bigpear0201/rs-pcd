@@ -15,10 +15,10 @@
 use crate::error::{PcdError, Result};
 use std::str::FromStr;
 
-mod parser;
 mod builder;
-pub use parser::parse_header;
+mod parser;
 pub use builder::PcdHeaderBuilder;
+pub use parser::parse_header;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DataFormat {
@@ -85,9 +85,9 @@ impl PcdHeader {
 
     pub fn point_step(&self) -> usize {
         self.sizes.iter().sum() // Simplified; actual stride might handle padding if counts > 1? Standard PCD usually tightly packed?
-        // Actually, PCD spec says "SIZE is the size of each dimension in bytes".
-        // "COUNT is the number of elements in each dimension."
-        // Point step is usually sum(size * count).
+                                // Actually, PCD spec says "SIZE is the size of each dimension in bytes".
+                                // "COUNT is the number of elements in each dimension."
+                                // Point step is usually sum(size * count).
     }
 
     pub fn total_point_step(&self) -> usize {

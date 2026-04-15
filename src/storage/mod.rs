@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::header::ValueType;
-use std::collections::HashMap;
+use crate::layout::FieldLayout;
+use std::collections::{HashMap, HashSet};
 
 pub mod view;
 pub use view::{ColumnView, PointView};
@@ -201,14 +202,18 @@ impl Column {
         }
     }
 
-    // Unsafe methods to get mutable slice for parallel writing.
-    // Safety: Caller must ensure exclusive access to the slice regions if writing in parallel.
+    /// Returns a raw pointer to the column storage and its byte length.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure any writes through the returned pointer uphold Rust's
+    /// aliasing rules and only touch disjoint regions when used concurrently.
     pub unsafe fn as_ptr_mut(&mut self) -> (*mut u8, usize) {
         match self {
-            Column::U8(v) => (v.as_mut_ptr() as *mut u8, v.len() * 1),
+            Column::U8(v) => (v.as_mut_ptr(), v.len()),
             Column::U16(v) => (v.as_mut_ptr() as *mut u8, v.len() * 2),
             Column::U32(v) => (v.as_mut_ptr() as *mut u8, v.len() * 4),
-            Column::I8(v) => (v.as_mut_ptr() as *mut u8, v.len() * 1),
+            Column::I8(v) => (v.as_mut_ptr() as *mut u8, v.len()),
             Column::I16(v) => (v.as_mut_ptr() as *mut u8, v.len() * 2),
             Column::I32(v) => (v.as_mut_ptr() as *mut u8, v.len() * 4),
             Column::F32(v) => (v.as_mut_ptr() as *mut u8, v.len() * 4),
@@ -217,12 +222,19 @@ impl Column {
     }
 }
 
+/// `(x, y, z)` coordinate slices.
+pub type Xyz<'a> = (&'a [f32], &'a [f32], &'a [f32]);
+/// `(x, y, z, intensity)` slices.
+pub type Xyzi<'a> = (&'a [f32], &'a [f32], &'a [f32], &'a [f32]);
+/// `(x, y, z, rgb)` slices, where `rgb` is packed as `u32`.
+pub type XyzRgb<'a> = (&'a [f32], &'a [f32], &'a [f32], &'a [u32]);
+
 /// SoA (Structure of Arrays) storage for point cloud data.
-/// 
+///
 /// Internally uses Vec<Column> for O(1) index-based access, with a HashMap
 /// for name-based lookups. This provides efficient iteration while maintaining
 /// backwards-compatible named access.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PointBlock {
     /// Column data stored in schema order for O(1) indexed access
     columns: Vec<Column>,
@@ -234,35 +246,17 @@ pub struct PointBlock {
     pub len: usize,
 }
 
-impl Default for PointBlock {
-    fn default() -> Self {
-        Self {
-            columns: Vec::new(),
-            schema: Vec::new(),
-            name_to_index: HashMap::new(),
-            len: 0,
-        }
-    }
-}
-
 impl PointBlock {
-    pub fn new(schema: &Vec<(String, ValueType)>, capacity: usize) -> Self {
-        let mut columns = Vec::with_capacity(schema.len());
-        let mut names = Vec::with_capacity(schema.len());
-        let mut name_to_index = HashMap::with_capacity(schema.len());
+    pub fn new(schema: &[(String, ValueType)], capacity: usize) -> Self {
+        Self::from_schema_iter(schema.iter().cloned(), schema.len(), capacity)
+    }
 
-        for (i, (name, dtype)) in schema.iter().enumerate() {
-            columns.push(Column::new(*dtype, capacity));
-            names.push(name.clone());
-            name_to_index.insert(name.clone(), i);
-        }
-
-        PointBlock {
-            columns,
-            schema: names,
-            name_to_index,
-            len: capacity,
-        }
+    pub(crate) fn from_layout_fields(fields: &[FieldLayout], capacity: usize) -> Self {
+        Self::from_schema_iter(
+            fields.iter().map(|field| (field.name.clone(), field.type_)),
+            fields.len(),
+            capacity,
+        )
     }
 
     pub fn resize(&mut self, new_len: usize) {
@@ -325,12 +319,10 @@ impl PointBlock {
     /// Returns None if any column is missing or if names contain duplicates.
     /// This avoids O(N*M) lookup inside tight loops.
     pub fn get_columns_mut(&mut self, names: &[String]) -> Option<Vec<&mut Column>> {
-        // Simple check for duplicates (O(M^2) but M is small, e.g. < 10)
-        for i in 0..names.len() {
-            for j in i + 1..names.len() {
-                if names[i] == names[j] {
-                    return None; // Duplicate requested
-                }
+        let mut seen = HashSet::with_capacity(names.len());
+        for name in names {
+            if !seen.insert(name.as_str()) {
+                return None;
             }
         }
 
@@ -356,6 +348,26 @@ impl PointBlock {
         Some(results)
     }
 
+    /// Optimized: Get multiple mutable columns by pre-resolved indices.
+    /// Returns None if any index is out of bounds or duplicated.
+    pub fn get_columns_mut_by_index(&mut self, indices: &[usize]) -> Option<Vec<&mut Column>> {
+        let mut seen = HashSet::with_capacity(indices.len());
+        for &idx in indices {
+            if idx >= self.columns.len() || !seen.insert(idx) {
+                return None;
+            }
+        }
+
+        let mut results = Vec::with_capacity(indices.len());
+        let base_ptr = self.columns.as_mut_ptr();
+        for &idx in indices {
+            unsafe {
+                results.push(&mut *base_ptr.add(idx));
+            }
+        }
+        Some(results)
+    }
+
     /// Access underlying columns slice (for iteration).
     #[must_use]
     pub fn columns(&self) -> &[Column] {
@@ -374,7 +386,7 @@ impl PointBlock {
     /// Get XYZ coordinates as f32 slices.
     /// Returns None if any of x, y, z columns are missing or not F32.
     #[must_use]
-    pub fn xyz(&self) -> Option<(&[f32], &[f32], &[f32])> {
+    pub fn xyz(&self) -> Option<Xyz<'_>> {
         let x = self.get_column("x")?.as_f32()?;
         let y = self.get_column("y")?.as_f32()?;
         let z = self.get_column("z")?.as_f32()?;
@@ -384,7 +396,7 @@ impl PointBlock {
     /// Get XYZ + intensity as f32 slices.
     /// Returns None if any column is missing or has wrong type.
     #[must_use]
-    pub fn xyzi(&self) -> Option<(&[f32], &[f32], &[f32], &[f32])> {
+    pub fn xyzi(&self) -> Option<Xyzi<'_>> {
         let x = self.get_column("x")?.as_f32()?;
         let y = self.get_column("y")?.as_f32()?;
         let z = self.get_column("z")?.as_f32()?;
@@ -395,11 +407,33 @@ impl PointBlock {
     /// Get XYZ + RGB (packed as u32) slices.
     /// Returns None if any column is missing or has wrong type.
     #[must_use]
-    pub fn xyzrgb(&self) -> Option<(&[f32], &[f32], &[f32], &[u32])> {
+    pub fn xyzrgb(&self) -> Option<XyzRgb<'_>> {
         let x = self.get_column("x")?.as_f32()?;
         let y = self.get_column("y")?.as_f32()?;
         let z = self.get_column("z")?.as_f32()?;
         let rgb = self.get_column("rgb")?.as_u32()?;
         Some((x, y, z, rgb))
+    }
+
+    fn from_schema_iter<I>(schema: I, schema_len: usize, capacity: usize) -> Self
+    where
+        I: IntoIterator<Item = (String, ValueType)>,
+    {
+        let mut columns = Vec::with_capacity(schema_len);
+        let mut names = Vec::with_capacity(schema_len);
+        let mut name_to_index = HashMap::with_capacity(schema_len);
+
+        for (i, (name, dtype)) in schema.into_iter().enumerate() {
+            columns.push(Column::new(dtype, capacity));
+            name_to_index.insert(name.clone(), i);
+            names.push(name);
+        }
+
+        PointBlock {
+            columns,
+            schema: names,
+            name_to_index,
+            len: capacity,
+        }
     }
 }

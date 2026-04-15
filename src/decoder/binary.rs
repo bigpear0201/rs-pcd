@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::decoder::slice::{
+    decode_f32_slice, decode_f64_slice, decode_i16_slice, decode_i32_slice, decode_i8_slice,
+    decode_u16_slice, decode_u32_slice,
+};
 use crate::error::{PcdError, Result};
 use crate::header::ValueType;
 use crate::layout::PcdLayout;
@@ -37,28 +41,31 @@ impl<'a, R: Read> BinaryReader<'a, R> {
     }
 
     pub fn decode(&mut self, output: &mut PointBlock) -> Result<()> {
-        let required_cols: Vec<String> =
-            self.layout.fields.iter().map(|f| f.name.clone()).collect();
-
-        // Ensure all columns exist
-        for name in &required_cols {
-            if output.get_column(name).is_none() {
-                return Err(PcdError::LayoutMismatch {
-                    expected: 0,
-                    got: 0,
-                });
-            }
-        }
-
         output.resize(self.points_to_read);
 
+        let column_indices = self
+            .layout
+            .fields
+            .iter()
+            .map(|field| {
+                output
+                    .get_column_index(&field.name)
+                    .ok_or(PcdError::LayoutMismatch {
+                        expected: 0,
+                        got: 0,
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         // Get mutable references to all columns at once
-        let mut columns = output.get_columns_mut(&required_cols).ok_or_else(|| {
-            PcdError::Other("Failed to acquire columns mutable borrow".to_string())
-        })?;
+        let mut columns = output
+            .get_columns_mut_by_index(&column_indices)
+            .ok_or_else(|| {
+                PcdError::Other("Failed to acquire columns mutable borrow".to_string())
+            })?;
 
         let point_step = self.layout.total_size;
-        
+
         // Batch read optimization: read multiple points at once to reduce syscalls
         let batch_bytes = point_step * BATCH_SIZE;
         let mut batch_buffer = vec![0u8; batch_bytes];
@@ -111,9 +118,7 @@ fn decode_field(
         }
         ValueType::I8 => {
             let vec = col.as_i8_mut().unwrap();
-            for (k, &b) in data.iter().enumerate() {
-                vec[dest_start + k] = b as i8;
-            }
+            decode_i8_slice(data, &mut vec[dest_start..dest_start + count]);
         }
         ValueType::U16 => {
             let vec = col.as_u16_mut().unwrap();
@@ -139,142 +144,5 @@ fn decode_field(
             let vec = col.as_f64_mut().unwrap();
             decode_f64_slice(&data[..count * 8], &mut vec[dest_start..dest_start + count]);
         }
-    }
-}
-
-// Platform-optimized decode functions
-// On Little Endian platforms, we can use direct memory copy for significant speedup
-
-#[cfg(target_endian = "little")]
-#[inline]
-fn decode_f32_slice(src: &[u8], dest: &mut [f32]) {
-    // Safety: src length is pre-validated, and f32 is 4 bytes
-    // On LE platforms, the byte order matches, so direct copy is valid
-    assert!(src.len() >= dest.len() * 4);
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            src.as_ptr(),
-            dest.as_mut_ptr() as *mut u8,
-            dest.len() * 4,
-        );
-    }
-}
-
-#[cfg(not(target_endian = "little"))]
-#[inline]
-fn decode_f32_slice(src: &[u8], dest: &mut [f32]) {
-    use byteorder::{ByteOrder, LittleEndian};
-    for (i, chunk) in src.chunks_exact(4).enumerate() {
-        dest[i] = LittleEndian::read_f32(chunk);
-    }
-}
-
-#[cfg(target_endian = "little")]
-#[inline]
-fn decode_f64_slice(src: &[u8], dest: &mut [f64]) {
-    assert!(src.len() >= dest.len() * 8);
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            src.as_ptr(),
-            dest.as_mut_ptr() as *mut u8,
-            dest.len() * 8,
-        );
-    }
-}
-
-#[cfg(not(target_endian = "little"))]
-#[inline]
-fn decode_f64_slice(src: &[u8], dest: &mut [f64]) {
-    use byteorder::{ByteOrder, LittleEndian};
-    for (i, chunk) in src.chunks_exact(8).enumerate() {
-        dest[i] = LittleEndian::read_f64(chunk);
-    }
-}
-
-#[cfg(target_endian = "little")]
-#[inline]
-fn decode_u16_slice(src: &[u8], dest: &mut [u16]) {
-    assert!(src.len() >= dest.len() * 2);
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            src.as_ptr(),
-            dest.as_mut_ptr() as *mut u8,
-            dest.len() * 2,
-        );
-    }
-}
-
-#[cfg(not(target_endian = "little"))]
-#[inline]
-fn decode_u16_slice(src: &[u8], dest: &mut [u16]) {
-    use byteorder::{ByteOrder, LittleEndian};
-    for (i, chunk) in src.chunks_exact(2).enumerate() {
-        dest[i] = LittleEndian::read_u16(chunk);
-    }
-}
-
-#[cfg(target_endian = "little")]
-#[inline]
-fn decode_i16_slice(src: &[u8], dest: &mut [i16]) {
-    assert!(src.len() >= dest.len() * 2);
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            src.as_ptr(),
-            dest.as_mut_ptr() as *mut u8,
-            dest.len() * 2,
-        );
-    }
-}
-
-#[cfg(not(target_endian = "little"))]
-#[inline]
-fn decode_i16_slice(src: &[u8], dest: &mut [i16]) {
-    use byteorder::{ByteOrder, LittleEndian};
-    for (i, chunk) in src.chunks_exact(2).enumerate() {
-        dest[i] = LittleEndian::read_i16(chunk);
-    }
-}
-
-#[cfg(target_endian = "little")]
-#[inline]
-fn decode_u32_slice(src: &[u8], dest: &mut [u32]) {
-    assert!(src.len() >= dest.len() * 4);
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            src.as_ptr(),
-            dest.as_mut_ptr() as *mut u8,
-            dest.len() * 4,
-        );
-    }
-}
-
-#[cfg(not(target_endian = "little"))]
-#[inline]
-fn decode_u32_slice(src: &[u8], dest: &mut [u32]) {
-    use byteorder::{ByteOrder, LittleEndian};
-    for (i, chunk) in src.chunks_exact(4).enumerate() {
-        dest[i] = LittleEndian::read_u32(chunk);
-    }
-}
-
-#[cfg(target_endian = "little")]
-#[inline]
-fn decode_i32_slice(src: &[u8], dest: &mut [i32]) {
-    assert!(src.len() >= dest.len() * 4);
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            src.as_ptr(),
-            dest.as_mut_ptr() as *mut u8,
-            dest.len() * 4,
-        );
-    }
-}
-
-#[cfg(not(target_endian = "little"))]
-#[inline]
-fn decode_i32_slice(src: &[u8], dest: &mut [i32]) {
-    use byteorder::{ByteOrder, LittleEndian};
-    for (i, chunk) in src.chunks_exact(4).enumerate() {
-        dest[i] = LittleEndian::read_i32(chunk);
     }
 }

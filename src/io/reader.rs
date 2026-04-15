@@ -18,7 +18,7 @@ use crate::decoder::binary::BinaryReader;
 use crate::decoder::binary_par::BinaryParallelDecoder;
 use crate::decoder::compressed::CompressedReader;
 use crate::error::Result;
-use crate::header::{DataFormat, PcdHeader, parse_header};
+use crate::header::{parse_header, DataFormat, PcdHeader};
 use crate::layout::PcdLayout;
 use crate::storage::PointBlock;
 
@@ -104,15 +104,7 @@ impl<R: BufRead> PcdReader<R> {
 
     pub fn read_all(mut self) -> Result<PointBlock> {
         let points = self.header.points;
-        let mut block = PointBlock::new(
-            &self
-                .layout
-                .fields
-                .iter()
-                .map(|f| (f.name.clone(), f.type_))
-                .collect(),
-            points,
-        );
+        let mut block = PointBlock::from_layout_fields(&self.layout.fields, points);
 
         match &mut self.source {
             InputSource::Reader(reader) => match self.header.data {

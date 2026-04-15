@@ -29,7 +29,7 @@ use rs_pcd::header::ValueType;
 use rs_pcd::header::{DataFormat, PcdHeader};
 #[cfg(feature = "memmap2")]
 use rs_pcd::io::PcdReader;
-use rs_pcd::io::{PcdWriter, read_pcd_file};
+use rs_pcd::io::{read_pcd_file, PcdWriter};
 use rs_pcd::storage::PointBlock;
 use std::fs::File;
 use std::io::BufWriter;

@@ -36,21 +36,22 @@ impl<'a, R: BufRead> AsciiReader<'a, R> {
     pub fn decode(&mut self, output: &mut PointBlock) -> Result<()> {
         output.resize(self.points_to_read);
 
-        let required_cols: Vec<String> =
-            self.layout.fields.iter().map(|f| f.name.clone()).collect();
-
-        // Ensure all columns exist
-        for name in &required_cols {
-            if output.get_column(name).is_none() {
-                return Err(PcdError::LayoutMismatch {
-                    expected: 0,
-                    got: 0,
-                }); // Todo: better error
-            }
-        }
+        let column_indices = self
+            .layout
+            .fields
+            .iter()
+            .map(|field| {
+                output
+                    .get_column_index(&field.name)
+                    .ok_or(PcdError::LayoutMismatch {
+                        expected: 0,
+                        got: 0,
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let mut columns = output
-            .get_columns_mut(&required_cols)
+            .get_columns_mut_by_index(&column_indices)
             .ok_or_else(|| PcdError::Other("Failed to mutate columns".to_string()))?;
 
         let mut line_buffer = String::new();
@@ -65,22 +66,19 @@ impl<'a, R: BufRead> AsciiReader<'a, R> {
                 )));
             }
 
-            let tokens: Vec<&str> = line_buffer.split_whitespace().collect();
-            let mut token_idx = 0;
+            let mut tokens = line_buffer.split_whitespace();
 
             for (field_idx, field) in self.layout.fields.iter().enumerate() {
                 let col = &mut columns[field_idx];
                 let count = field.count;
 
                 for k in 0..count {
-                    if token_idx >= tokens.len() {
-                        return Err(PcdError::InvalidDataFormat(format!(
+                    let token = tokens.next().ok_or_else(|| {
+                        PcdError::InvalidDataFormat(format!(
                             "Not enough tokens for point {}, field {}",
                             i, field.name
-                        )));
-                    }
-                    let token = tokens[token_idx];
-                    token_idx += 1;
+                        ))
+                    })?;
 
                     let idx = i * count + k;
 

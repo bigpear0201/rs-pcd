@@ -91,7 +91,7 @@ fn test_dynamic_fields_binary() {
         width: num_points as u32,
         height: 1,
         viewpoint: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-        points: num_points as usize,
+        points: num_points,
         data: DataFormat::Binary,
     };
 
@@ -116,10 +116,16 @@ fn test_dynamic_fields_binary() {
         .as_f64()
         .unwrap();
 
-    for i in 0..num_points {
-        assert_eq!(id_col[i], 1000 + i as u32);
-        assert_eq!(label_col[i], (i % 255) as u8);
-        assert!((ts_col[i] - i as f64 * 0.1).abs() < 1e-10);
+    for (i, ((&id, &label), &timestamp)) in id_col
+        .iter()
+        .zip(label_col.iter())
+        .zip(ts_col.iter())
+        .enumerate()
+        .take(num_points)
+    {
+        assert_eq!(id, 1000 + i as u32);
+        assert_eq!(label, (i % 255) as u8);
+        assert!((timestamp - i as f64 * 0.1).abs() < 1e-10);
     }
 }
 
@@ -163,7 +169,7 @@ fn test_dynamic_fields_ascii() {
         width: num_points as u32,
         height: 1,
         viewpoint: [0.0; 7],
-        points: num_points as usize,
+        points: num_points,
         data: DataFormat::Ascii,
     };
 
@@ -181,8 +187,8 @@ fn test_dynamic_fields_ascii() {
     let read_block = reader.read_all().expect("Read failed");
 
     let id_col = read_block.get_column("id").unwrap().as_i32().unwrap();
-    for i in 0..num_points {
-        assert_eq!(id_col[i], -(i as i32));
+    for (i, &id) in id_col.iter().enumerate().take(num_points) {
+        assert_eq!(id, -(i as i32));
     }
 }
 
@@ -225,7 +231,7 @@ fn test_dynamic_fields_compressed() {
         width: num_points as u32,
         height: 1,
         viewpoint: [0.0; 7],
-        points: num_points as usize,
+        points: num_points,
         data: DataFormat::BinaryCompressed,
     };
 
