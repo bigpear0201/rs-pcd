@@ -24,7 +24,7 @@ struct SyncPtr(*mut u8);
 unsafe impl Sync for SyncPtr {}
 unsafe impl Send for SyncPtr {}
 
-const POINTS_PER_RAYON_TASK: usize = 4096;
+const PARALLEL_CHUNK_SIZE: usize = 4096;
 
 pub struct BinaryParallelDecoder<'a> {
     layout: &'a PcdLayout,
@@ -59,15 +59,15 @@ impl<'a> BinaryParallelDecoder<'a> {
             }
         }
 
-        let parallel_points = self.points / POINTS_PER_RAYON_TASK * POINTS_PER_RAYON_TASK;
+        let parallel_points = self.points / PARALLEL_CHUNK_SIZE * PARALLEL_CHUNK_SIZE;
         let parallel_bytes = parallel_points * point_step;
         let (parallel_data, remainder_data) = data.split_at(parallel_bytes);
 
         parallel_data
-            .par_chunks_exact(point_step * POINTS_PER_RAYON_TASK)
+            .par_chunks_exact(point_step * PARALLEL_CHUNK_SIZE)
             .enumerate()
             .for_each(|(chunk_idx, point_chunk)| {
-                let point_start = chunk_idx * POINTS_PER_RAYON_TASK;
+                let point_start = chunk_idx * PARALLEL_CHUNK_SIZE;
 
                 for (local_idx, point_data) in point_chunk.chunks_exact(point_step).enumerate() {
                     decode_point(point_start + local_idx, point_data, &col_ptrs);
