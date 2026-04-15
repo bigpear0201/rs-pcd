@@ -221,11 +221,6 @@ impl Column {
     }
 }
 
-/// SoA (Structure of Arrays) storage for point cloud data.
-///
-/// Internally uses Vec<Column> for O(1) index-based access, with a HashMap
-/// for name-based lookups. This provides efficient iteration while maintaining
-/// backwards-compatible named access.
 /// `(x, y, z)` coordinate slices.
 pub type Xyz<'a> = (&'a [f32], &'a [f32], &'a [f32]);
 /// `(x, y, z, intensity)` slices.
@@ -233,6 +228,11 @@ pub type Xyzi<'a> = (&'a [f32], &'a [f32], &'a [f32], &'a [f32]);
 /// `(x, y, z, rgb)` slices, where `rgb` is packed as `u32`.
 pub type XyzRgb<'a> = (&'a [f32], &'a [f32], &'a [f32], &'a [u32]);
 
+/// SoA (Structure of Arrays) storage for point cloud data.
+///
+/// Internally uses Vec<Column> for O(1) index-based access, with a HashMap
+/// for name-based lookups. This provides efficient iteration while maintaining
+/// backwards-compatible named access.
 #[derive(Debug, Default)]
 pub struct PointBlock {
     /// Column data stored in schema order for O(1) indexed access
