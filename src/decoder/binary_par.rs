@@ -48,8 +48,8 @@ impl<'a> BinaryParallelDecoder<'a> {
 
         // Collect raw pointers for columns
         let mut col_ptrs = Vec::new();
-        for field in &self.layout.fields {
-            if let Some(col) = output.get_column_mut(&field.name) {
+        for (field_idx, field) in self.layout.fields.iter().enumerate() {
+            if let Some(col) = output.get_column_mut_by_index(field_idx) {
                 let (ptr, _len_bytes) = unsafe { col.as_ptr_mut() };
                 // Calculate length in elements (already consistent with resize)
                 let len = col.len();

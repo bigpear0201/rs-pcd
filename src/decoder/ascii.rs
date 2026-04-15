@@ -36,24 +36,26 @@ impl<'a, R: BufRead> AsciiReader<'a, R> {
     pub fn decode(&mut self, output: &mut PointBlock) -> Result<()> {
         output.resize(self.points_to_read);
 
-        let required_cols: Vec<String> =
-            self.layout.fields.iter().map(|f| f.name.clone()).collect();
-
-        // Ensure all columns exist
-        for name in &required_cols {
-            if output.get_column(name).is_none() {
-                return Err(PcdError::LayoutMismatch {
-                    expected: 0,
-                    got: 0,
-                }); // Todo: better error
-            }
-        }
+        let column_indices = self
+            .layout
+            .fields
+            .iter()
+            .map(|field| {
+                output
+                    .get_column_index(&field.name)
+                    .ok_or(PcdError::LayoutMismatch {
+                        expected: 0,
+                        got: 0,
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let mut columns = output
-            .get_columns_mut(&required_cols)
+            .get_columns_mut_by_index(&column_indices)
             .ok_or_else(|| PcdError::Other("Failed to mutate columns".to_string()))?;
 
         let mut line_buffer = String::new();
+        let mut tokens = Vec::with_capacity(self.layout.fields.len());
 
         for i in 0..self.points_to_read {
             line_buffer.clear();
@@ -65,7 +67,8 @@ impl<'a, R: BufRead> AsciiReader<'a, R> {
                 )));
             }
 
-            let tokens: Vec<&str> = line_buffer.split_whitespace().collect();
+            tokens.clear();
+            tokens.extend(line_buffer.split_whitespace());
             let mut token_idx = 0;
 
             for (field_idx, field) in self.layout.fields.iter().enumerate() {

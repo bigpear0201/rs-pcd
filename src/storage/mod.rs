@@ -218,7 +218,7 @@ impl Column {
 }
 
 /// SoA (Structure of Arrays) storage for point cloud data.
-/// 
+///
 /// Internally uses Vec<Column> for O(1) index-based access, with a HashMap
 /// for name-based lookups. This provides efficient iteration while maintaining
 /// backwards-compatible named access.
@@ -349,6 +349,30 @@ impl PointBlock {
         let mut results = Vec::with_capacity(names.len());
         let base_ptr = self.columns.as_mut_ptr();
         for idx in indices {
+            unsafe {
+                results.push(&mut *base_ptr.add(idx));
+            }
+        }
+        Some(results)
+    }
+
+    /// Optimized: Get multiple mutable columns by pre-resolved indices.
+    /// Returns None if any index is out of bounds or duplicated.
+    pub fn get_columns_mut_by_index(&mut self, indices: &[usize]) -> Option<Vec<&mut Column>> {
+        for i in 0..indices.len() {
+            if indices[i] >= self.columns.len() {
+                return None;
+            }
+            for j in i + 1..indices.len() {
+                if indices[i] == indices[j] {
+                    return None;
+                }
+            }
+        }
+
+        let mut results = Vec::with_capacity(indices.len());
+        let base_ptr = self.columns.as_mut_ptr();
+        for &idx in indices {
             unsafe {
                 results.push(&mut *base_ptr.add(idx));
             }

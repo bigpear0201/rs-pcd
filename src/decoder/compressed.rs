@@ -78,13 +78,14 @@ impl<'a, R: Read> CompressedReader<'a, R> {
         // Process fields (SoA in buffer: [Field1 All Points][Field2 All Points]...)
         let mut offset = 0;
 
-        for field in &self.layout.fields {
-            let col = output
-                .get_column_mut(&field.name)
-                .ok_or(PcdError::InvalidDataFormat(format!(
-                    "Missing column {}",
-                    field.name
-                )))?;
+        for (field_idx, field) in self.layout.fields.iter().enumerate() {
+            let col =
+                output
+                    .get_column_mut_by_index(field_idx)
+                    .ok_or(PcdError::InvalidDataFormat(format!(
+                        "Missing column {}",
+                        field.name
+                    )))?;
 
             let bytes_per_element = field.element_size; // e.g. 4 for f32
             let elements_per_point = field.count; // e.g. 1
