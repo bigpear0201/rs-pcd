@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::header::ValueType;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub mod view;
 pub use view::{ColumnView, PointView};
@@ -226,8 +226,11 @@ impl Column {
 /// Internally uses Vec<Column> for O(1) index-based access, with a HashMap
 /// for name-based lookups. This provides efficient iteration while maintaining
 /// backwards-compatible named access.
+/// `(x, y, z)` coordinate slices.
 pub type Xyz<'a> = (&'a [f32], &'a [f32], &'a [f32]);
+/// `(x, y, z, intensity)` slices.
 pub type Xyzi<'a> = (&'a [f32], &'a [f32], &'a [f32], &'a [f32]);
+/// `(x, y, z, rgb)` slices, where `rgb` is packed as `u32`.
 pub type XyzRgb<'a> = (&'a [f32], &'a [f32], &'a [f32], &'a [u32]);
 
 #[derive(Debug, Default)]
@@ -322,12 +325,10 @@ impl PointBlock {
     /// Returns None if any column is missing or if names contain duplicates.
     /// This avoids O(N*M) lookup inside tight loops.
     pub fn get_columns_mut(&mut self, names: &[String]) -> Option<Vec<&mut Column>> {
-        // Simple check for duplicates (O(M^2) but M is small, e.g. < 10)
-        for i in 0..names.len() {
-            for j in i + 1..names.len() {
-                if names[i] == names[j] {
-                    return None; // Duplicate requested
-                }
+        let mut seen = HashSet::with_capacity(names.len());
+        for name in names {
+            if !seen.insert(name.as_str()) {
+                return None;
             }
         }
 
@@ -356,14 +357,10 @@ impl PointBlock {
     /// Optimized: Get multiple mutable columns by pre-resolved indices.
     /// Returns None if any index is out of bounds or duplicated.
     pub fn get_columns_mut_by_index(&mut self, indices: &[usize]) -> Option<Vec<&mut Column>> {
-        for i in 0..indices.len() {
-            if indices[i] >= self.columns.len() {
+        let mut seen = HashSet::with_capacity(indices.len());
+        for &idx in indices {
+            if idx >= self.columns.len() || !seen.insert(idx) {
                 return None;
-            }
-            for j in i + 1..indices.len() {
-                if indices[i] == indices[j] {
-                    return None;
-                }
             }
         }
 
