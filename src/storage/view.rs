@@ -39,11 +39,21 @@ impl<'a> ColumnView<'a> {
             ColumnView::F64(v) => v.len(),
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 pub struct PointView<'a> {
     pub columns: HashMap<String, ColumnView<'a>>,
     pub len: usize,
+}
+
+impl<'a> Default for PointView<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> PointView<'a> {

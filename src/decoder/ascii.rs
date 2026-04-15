@@ -55,7 +55,6 @@ impl<'a, R: BufRead> AsciiReader<'a, R> {
             .ok_or_else(|| PcdError::Other("Failed to mutate columns".to_string()))?;
 
         let mut line_buffer = String::new();
-        let mut tokens = Vec::with_capacity(self.layout.fields.len());
 
         for i in 0..self.points_to_read {
             line_buffer.clear();
@@ -67,23 +66,19 @@ impl<'a, R: BufRead> AsciiReader<'a, R> {
                 )));
             }
 
-            tokens.clear();
-            tokens.extend(line_buffer.split_whitespace());
-            let mut token_idx = 0;
+            let mut tokens = line_buffer.split_whitespace();
 
             for (field_idx, field) in self.layout.fields.iter().enumerate() {
                 let col = &mut columns[field_idx];
                 let count = field.count;
 
                 for k in 0..count {
-                    if token_idx >= tokens.len() {
-                        return Err(PcdError::InvalidDataFormat(format!(
+                    let token = tokens.next().ok_or_else(|| {
+                        PcdError::InvalidDataFormat(format!(
                             "Not enough tokens for point {}, field {}",
                             i, field.name
-                        )));
-                    }
-                    let token = tokens[token_idx];
-                    token_idx += 1;
+                        ))
+                    })?;
 
                     let idx = i * count + k;
 

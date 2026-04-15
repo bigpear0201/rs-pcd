@@ -104,7 +104,7 @@ impl<W: Write> PcdWriter<W> {
                         // Check sizes: 4 bytes -> F32, 8 bytes -> F64
                         match header.sizes[field_idx] {
                             4 => {
-                                let vec = col.as_f32().ok_or_else(|| PcdError::LayoutMismatch {
+                                let vec = col.as_f32().ok_or(PcdError::LayoutMismatch {
                                     expected: 0,
                                     got: 0,
                                 })?; // Todo better error
@@ -113,7 +113,7 @@ impl<W: Write> PcdWriter<W> {
                                 }
                             }
                             8 => {
-                                let vec = col.as_f64().ok_or_else(|| PcdError::LayoutMismatch {
+                                let vec = col.as_f64().ok_or(PcdError::LayoutMismatch {
                                     expected: 0,
                                     got: 0,
                                 })?;

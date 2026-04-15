@@ -13,15 +13,15 @@
 // limitations under the License.
 
 //! Builder pattern for constructing PcdHeader.
-//! 
+//!
 //! This provides a more ergonomic API than manually constructing a PcdHeader,
 //! automatically deriving sizes, types, and counts from the ValueType.
-//! 
+//!
 //! # Example
-//! 
+//!
 //! ```rust
 //! use rs_pcd::header::{PcdHeaderBuilder, ValueType, DataFormat};
-//! 
+//!
 //! let header = PcdHeaderBuilder::new()
 //!     .add_field("x", ValueType::F32)
 //!     .add_field("y", ValueType::F32)
@@ -118,11 +118,9 @@ impl PcdHeaderBuilder {
     /// Build the PcdHeader.
     /// Returns an error if width is not set.
     pub fn build(self) -> Result<PcdHeader> {
-        let width = self.width.ok_or_else(|| {
-            PcdError::InvalidHeader {
-                line: 0,
-                msg: "Width must be set".to_string(),
-            }
+        let width = self.width.ok_or_else(|| PcdError::InvalidHeader {
+            line: 0,
+            msg: "Width must be set".to_string(),
         })?;
 
         if self.fields.is_empty() {

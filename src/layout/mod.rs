@@ -37,21 +37,15 @@ impl PcdLayout {
         let mut offset = 0;
 
         for (i, name) in header.fields.iter().enumerate() {
-            let type_char = header
-                .types
-                .get(i)
-                .ok_or_else(|| PcdError::LayoutMismatch {
-                    expected: header.fields.len(),
-                    got: i,
-                })?;
+            let type_char = header.types.get(i).ok_or(PcdError::LayoutMismatch {
+                expected: header.fields.len(),
+                got: i,
+            })?;
 
-            let size_in_header = *header
-                .sizes
-                .get(i)
-                .ok_or_else(|| PcdError::LayoutMismatch {
-                    expected: header.fields.len(),
-                    got: i,
-                })?;
+            let size_in_header = *header.sizes.get(i).ok_or(PcdError::LayoutMismatch {
+                expected: header.fields.len(),
+                got: i,
+            })?;
 
             let count = *header.counts.get(i).unwrap_or(&1);
 

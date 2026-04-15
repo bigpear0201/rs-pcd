@@ -77,17 +77,21 @@ impl<'a> BinaryParallelDecoder<'a> {
                     match vtype {
                         ValueType::U8 => {
                             let u8_ptr = ptr;
-                            for k in 0..field.count {
+                            for (k, value) in
+                                src_slice.iter().copied().enumerate().take(field.count)
+                            {
                                 unsafe {
-                                    *u8_ptr.add(i * field.count + k) = src_slice[k];
+                                    *u8_ptr.add(i * field.count + k) = value;
                                 }
                             }
                         }
                         ValueType::I8 => {
                             let i8_ptr = ptr as *mut i8;
-                            for k in 0..field.count {
+                            for (k, value) in
+                                src_slice.iter().copied().enumerate().take(field.count)
+                            {
                                 unsafe {
-                                    *i8_ptr.add(i * field.count + k) = src_slice[k] as i8;
+                                    *i8_ptr.add(i * field.count + k) = value as i8;
                                 }
                             }
                         }

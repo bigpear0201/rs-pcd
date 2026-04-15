@@ -201,14 +201,18 @@ impl Column {
         }
     }
 
-    // Unsafe methods to get mutable slice for parallel writing.
-    // Safety: Caller must ensure exclusive access to the slice regions if writing in parallel.
+    /// Returns a raw pointer to the column storage and its byte length.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure any writes through the returned pointer uphold Rust's
+    /// aliasing rules and only touch disjoint regions when used concurrently.
     pub unsafe fn as_ptr_mut(&mut self) -> (*mut u8, usize) {
         match self {
-            Column::U8(v) => (v.as_mut_ptr() as *mut u8, v.len() * 1),
+            Column::U8(v) => (v.as_mut_ptr(), v.len()),
             Column::U16(v) => (v.as_mut_ptr() as *mut u8, v.len() * 2),
             Column::U32(v) => (v.as_mut_ptr() as *mut u8, v.len() * 4),
-            Column::I8(v) => (v.as_mut_ptr() as *mut u8, v.len() * 1),
+            Column::I8(v) => (v.as_mut_ptr() as *mut u8, v.len()),
             Column::I16(v) => (v.as_mut_ptr() as *mut u8, v.len() * 2),
             Column::I32(v) => (v.as_mut_ptr() as *mut u8, v.len() * 4),
             Column::F32(v) => (v.as_mut_ptr() as *mut u8, v.len() * 4),
@@ -222,7 +226,11 @@ impl Column {
 /// Internally uses Vec<Column> for O(1) index-based access, with a HashMap
 /// for name-based lookups. This provides efficient iteration while maintaining
 /// backwards-compatible named access.
-#[derive(Debug)]
+pub type Xyz<'a> = (&'a [f32], &'a [f32], &'a [f32]);
+pub type Xyzi<'a> = (&'a [f32], &'a [f32], &'a [f32], &'a [f32]);
+pub type XyzRgb<'a> = (&'a [f32], &'a [f32], &'a [f32], &'a [u32]);
+
+#[derive(Debug, Default)]
 pub struct PointBlock {
     /// Column data stored in schema order for O(1) indexed access
     columns: Vec<Column>,
@@ -234,19 +242,8 @@ pub struct PointBlock {
     pub len: usize,
 }
 
-impl Default for PointBlock {
-    fn default() -> Self {
-        Self {
-            columns: Vec::new(),
-            schema: Vec::new(),
-            name_to_index: HashMap::new(),
-            len: 0,
-        }
-    }
-}
-
 impl PointBlock {
-    pub fn new(schema: &Vec<(String, ValueType)>, capacity: usize) -> Self {
+    pub fn new(schema: &[(String, ValueType)], capacity: usize) -> Self {
         let mut columns = Vec::with_capacity(schema.len());
         let mut names = Vec::with_capacity(schema.len());
         let mut name_to_index = HashMap::with_capacity(schema.len());
@@ -398,7 +395,7 @@ impl PointBlock {
     /// Get XYZ coordinates as f32 slices.
     /// Returns None if any of x, y, z columns are missing or not F32.
     #[must_use]
-    pub fn xyz(&self) -> Option<(&[f32], &[f32], &[f32])> {
+    pub fn xyz(&self) -> Option<Xyz<'_>> {
         let x = self.get_column("x")?.as_f32()?;
         let y = self.get_column("y")?.as_f32()?;
         let z = self.get_column("z")?.as_f32()?;
@@ -408,7 +405,7 @@ impl PointBlock {
     /// Get XYZ + intensity as f32 slices.
     /// Returns None if any column is missing or has wrong type.
     #[must_use]
-    pub fn xyzi(&self) -> Option<(&[f32], &[f32], &[f32], &[f32])> {
+    pub fn xyzi(&self) -> Option<Xyzi<'_>> {
         let x = self.get_column("x")?.as_f32()?;
         let y = self.get_column("y")?.as_f32()?;
         let z = self.get_column("z")?.as_f32()?;
@@ -419,7 +416,7 @@ impl PointBlock {
     /// Get XYZ + RGB (packed as u32) slices.
     /// Returns None if any column is missing or has wrong type.
     #[must_use]
-    pub fn xyzrgb(&self) -> Option<(&[f32], &[f32], &[f32], &[u32])> {
+    pub fn xyzrgb(&self) -> Option<XyzRgb<'_>> {
         let x = self.get_column("x")?.as_f32()?;
         let y = self.get_column("y")?.as_f32()?;
         let z = self.get_column("z")?.as_f32()?;
