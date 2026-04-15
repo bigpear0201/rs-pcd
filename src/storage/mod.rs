@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::header::ValueType;
+use crate::layout::FieldLayout;
 use std::collections::{HashMap, HashSet};
 
 pub mod view;
@@ -247,22 +248,15 @@ pub struct PointBlock {
 
 impl PointBlock {
     pub fn new(schema: &[(String, ValueType)], capacity: usize) -> Self {
-        let mut columns = Vec::with_capacity(schema.len());
-        let mut names = Vec::with_capacity(schema.len());
-        let mut name_to_index = HashMap::with_capacity(schema.len());
+        Self::from_schema_iter(schema.iter().cloned(), schema.len(), capacity)
+    }
 
-        for (i, (name, dtype)) in schema.iter().enumerate() {
-            columns.push(Column::new(*dtype, capacity));
-            names.push(name.clone());
-            name_to_index.insert(name.clone(), i);
-        }
-
-        PointBlock {
-            columns,
-            schema: names,
-            name_to_index,
-            len: capacity,
-        }
+    pub(crate) fn from_layout_fields(fields: &[FieldLayout], capacity: usize) -> Self {
+        Self::from_schema_iter(
+            fields.iter().map(|field| (field.name.clone(), field.type_)),
+            fields.len(),
+            capacity,
+        )
     }
 
     pub fn resize(&mut self, new_len: usize) {
@@ -419,5 +413,27 @@ impl PointBlock {
         let z = self.get_column("z")?.as_f32()?;
         let rgb = self.get_column("rgb")?.as_u32()?;
         Some((x, y, z, rgb))
+    }
+
+    fn from_schema_iter<I>(schema: I, schema_len: usize, capacity: usize) -> Self
+    where
+        I: IntoIterator<Item = (String, ValueType)>,
+    {
+        let mut columns = Vec::with_capacity(schema_len);
+        let mut names = Vec::with_capacity(schema_len);
+        let mut name_to_index = HashMap::with_capacity(schema_len);
+
+        for (i, (name, dtype)) in schema.into_iter().enumerate() {
+            columns.push(Column::new(dtype, capacity));
+            name_to_index.insert(name.clone(), i);
+            names.push(name);
+        }
+
+        PointBlock {
+            columns,
+            schema: names,
+            name_to_index,
+            len: capacity,
+        }
     }
 }

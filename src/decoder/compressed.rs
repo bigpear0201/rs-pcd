@@ -12,12 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::decoder::slice::{
+    decode_f32_slice, decode_f64_slice, decode_i16_slice, decode_i32_slice, decode_i8_slice,
+    decode_u16_slice, decode_u32_slice,
+};
 use crate::error::{PcdError, Result};
 use crate::header::ValueType;
 use crate::layout::PcdLayout;
-use crate::storage::PointBlock;
-use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use crate::storage::{Column, PointBlock};
+use byteorder::{LittleEndian, ReadBytesExt};
 use lzf;
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
 use std::io::Read;
 
 pub struct CompressedReader<'a, R: Read> {
@@ -75,78 +81,110 @@ impl<'a, R: Read> CompressedReader<'a, R> {
         }
         output.resize(self.points_to_read);
 
-        // Process fields (SoA in buffer: [Field1 All Points][Field2 All Points]...)
-        let mut offset = 0;
+        let field_ranges = self.field_ranges(&decompressed);
 
-        for (field_idx, field) in self.layout.fields.iter().enumerate() {
-            let col =
-                output
-                    .get_column_mut_by_index(field_idx)
-                    .ok_or(PcdError::InvalidDataFormat(format!(
-                        "Missing column {}",
-                        field.name
-                    )))?;
+        #[cfg(feature = "rayon")]
+        {
+            output
+                .columns_mut()
+                .par_iter_mut()
+                .zip(self.layout.fields.par_iter())
+                .zip(field_ranges.par_iter())
+                .try_for_each(|((col, field), data_slice)| {
+                    decode_column(col, field.type_, data_slice)
+                })?;
+        }
 
-            let bytes_per_element = field.element_size; // e.g. 4 for f32
-            let elements_per_point = field.count; // e.g. 1
-            let bytes_per_field_block =
-                bytes_per_element * elements_per_point * self.points_to_read;
-
-            let end = offset + bytes_per_field_block;
-            let data_slice = &decompressed[offset..end];
-            offset = end;
-
-            match field.type_ {
-                ValueType::U8 => {
-                    let vec = col.as_u8_mut().unwrap();
-                    vec.copy_from_slice(data_slice);
-                }
-                ValueType::F32 => {
-                    let vec = col.as_f32_mut().unwrap();
-                    for (i, chunk) in data_slice.chunks_exact(4).enumerate() {
-                        vec[i] = LittleEndian::read_f32(chunk);
-                    }
-                }
-                ValueType::F64 => {
-                    let vec = col.as_f64_mut().unwrap();
-                    for (i, chunk) in data_slice.chunks_exact(8).enumerate() {
-                        vec[i] = LittleEndian::read_f64(chunk);
-                    }
-                }
-                ValueType::U16 => {
-                    let vec = col.as_u16_mut().unwrap();
-                    for (i, chunk) in data_slice.chunks_exact(2).enumerate() {
-                        vec[i] = LittleEndian::read_u16(chunk);
-                    }
-                }
-                ValueType::U32 => {
-                    let vec = col.as_u32_mut().unwrap();
-                    for (i, chunk) in data_slice.chunks_exact(4).enumerate() {
-                        vec[i] = LittleEndian::read_u32(chunk);
-                    }
-                }
-                ValueType::I8 => {
-                    let vec = col.as_i8_mut().unwrap();
-                    // Safe conversion from u8 to i8
-                    for (dest, &src) in vec.iter_mut().zip(data_slice.iter()) {
-                        *dest = src as i8;
-                    }
-                }
-                ValueType::I16 => {
-                    let vec = col.as_i16_mut().unwrap();
-                    for (i, chunk) in data_slice.chunks_exact(2).enumerate() {
-                        vec[i] = LittleEndian::read_i16(chunk);
-                    }
-                }
-                ValueType::I32 => {
-                    let vec = col.as_i32_mut().unwrap();
-                    for (i, chunk) in data_slice.chunks_exact(4).enumerate() {
-                        vec[i] = LittleEndian::read_i32(chunk);
-                    }
-                }
+        #[cfg(not(feature = "rayon"))]
+        {
+            for ((field, data_slice), col) in self
+                .layout
+                .fields
+                .iter()
+                .zip(field_ranges.iter())
+                .zip(output.columns_mut().iter_mut())
+            {
+                decode_column(col, field.type_, data_slice)?;
             }
         }
 
         Ok(())
     }
+
+    fn field_ranges<'b>(&self, decompressed: &'b [u8]) -> Vec<&'b [u8]> {
+        let mut offset = 0;
+        let mut ranges = Vec::with_capacity(self.layout.fields.len());
+
+        for field in &self.layout.fields {
+            let bytes_per_field_block = field.size * self.points_to_read;
+            let end = offset + bytes_per_field_block;
+            ranges.push(&decompressed[offset..end]);
+            offset = end;
+        }
+
+        ranges
+    }
+}
+
+fn decode_column(column: &mut Column, value_type: ValueType, data_slice: &[u8]) -> Result<()> {
+    match value_type {
+        ValueType::U8 => {
+            let vec = column.as_u8_mut().ok_or(PcdError::LayoutMismatch {
+                expected: 0,
+                got: 0,
+            })?;
+            vec.copy_from_slice(data_slice);
+        }
+        ValueType::I8 => {
+            let vec = column.as_i8_mut().ok_or(PcdError::LayoutMismatch {
+                expected: 0,
+                got: 0,
+            })?;
+            decode_i8_slice(data_slice, vec);
+        }
+        ValueType::U16 => {
+            let vec = column.as_u16_mut().ok_or(PcdError::LayoutMismatch {
+                expected: 0,
+                got: 0,
+            })?;
+            decode_u16_slice(data_slice, vec);
+        }
+        ValueType::I16 => {
+            let vec = column.as_i16_mut().ok_or(PcdError::LayoutMismatch {
+                expected: 0,
+                got: 0,
+            })?;
+            decode_i16_slice(data_slice, vec);
+        }
+        ValueType::U32 => {
+            let vec = column.as_u32_mut().ok_or(PcdError::LayoutMismatch {
+                expected: 0,
+                got: 0,
+            })?;
+            decode_u32_slice(data_slice, vec);
+        }
+        ValueType::I32 => {
+            let vec = column.as_i32_mut().ok_or(PcdError::LayoutMismatch {
+                expected: 0,
+                got: 0,
+            })?;
+            decode_i32_slice(data_slice, vec);
+        }
+        ValueType::F32 => {
+            let vec = column.as_f32_mut().ok_or(PcdError::LayoutMismatch {
+                expected: 0,
+                got: 0,
+            })?;
+            decode_f32_slice(data_slice, vec);
+        }
+        ValueType::F64 => {
+            let vec = column.as_f64_mut().ok_or(PcdError::LayoutMismatch {
+                expected: 0,
+                got: 0,
+            })?;
+            decode_f64_slice(data_slice, vec);
+        }
+    }
+
+    Ok(())
 }

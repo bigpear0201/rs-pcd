@@ -24,6 +24,8 @@ struct SyncPtr(*mut u8);
 unsafe impl Sync for SyncPtr {}
 unsafe impl Send for SyncPtr {}
 
+const POINTS_PER_RAYON_TASK: usize = 4096;
+
 pub struct BinaryParallelDecoder<'a> {
     layout: &'a PcdLayout,
     points: usize,
@@ -57,108 +59,122 @@ impl<'a> BinaryParallelDecoder<'a> {
             }
         }
 
-        // Rayon parallel loop
-        // Input data is AoS. size = points * stride.
-        // We iterate over chunks of bytes corresponding to points concurrently.
-        data.par_chunks_exact(point_step)
+        let parallel_points = self.points / POINTS_PER_RAYON_TASK * POINTS_PER_RAYON_TASK;
+        let parallel_bytes = parallel_points * point_step;
+        let (parallel_data, remainder_data) = data.split_at(parallel_bytes);
+
+        parallel_data
+            .par_chunks_exact(point_step * POINTS_PER_RAYON_TASK)
             .enumerate()
-            .for_each(|(i, point_data)| {
-                for (field, ptr_wrapper, len, vtype) in &col_ptrs {
-                    let ptr = ptr_wrapper.0;
+            .for_each(|(chunk_idx, point_chunk)| {
+                let point_start = chunk_idx * POINTS_PER_RAYON_TASK;
 
-                    if i >= *len {
-                        continue;
-                    }
-
-                    let field_offset_in_point = field.offset;
-                    let src_slice =
-                        &point_data[field_offset_in_point..field_offset_in_point + field.size];
-
-                    match vtype {
-                        ValueType::U8 => {
-                            let u8_ptr = ptr;
-                            for (k, value) in
-                                src_slice.iter().copied().enumerate().take(field.count)
-                            {
-                                unsafe {
-                                    *u8_ptr.add(i * field.count + k) = value;
-                                }
-                            }
-                        }
-                        ValueType::I8 => {
-                            let i8_ptr = ptr as *mut i8;
-                            for (k, value) in
-                                src_slice.iter().copied().enumerate().take(field.count)
-                            {
-                                unsafe {
-                                    *i8_ptr.add(i * field.count + k) = value as i8;
-                                }
-                            }
-                        }
-                        ValueType::U16 => {
-                            let u16_ptr = ptr as *mut u16;
-                            for k in 0..field.count {
-                                let offset = k * 2;
-                                let val = LittleEndian::read_u16(&src_slice[offset..offset + 2]);
-                                unsafe {
-                                    *u16_ptr.add(i * field.count + k) = val;
-                                }
-                            }
-                        }
-                        ValueType::I16 => {
-                            let i16_ptr = ptr as *mut i16;
-                            for k in 0..field.count {
-                                let offset = k * 2;
-                                let val = LittleEndian::read_i16(&src_slice[offset..offset + 2]);
-                                unsafe {
-                                    *i16_ptr.add(i * field.count + k) = val;
-                                }
-                            }
-                        }
-                        ValueType::U32 => {
-                            let u32_ptr = ptr as *mut u32;
-                            for k in 0..field.count {
-                                let offset = k * 4;
-                                let val = LittleEndian::read_u32(&src_slice[offset..offset + 4]);
-                                unsafe {
-                                    *u32_ptr.add(i * field.count + k) = val;
-                                }
-                            }
-                        }
-                        ValueType::I32 => {
-                            let i32_ptr = ptr as *mut i32;
-                            for k in 0..field.count {
-                                let offset = k * 4;
-                                let val = LittleEndian::read_i32(&src_slice[offset..offset + 4]);
-                                unsafe {
-                                    *i32_ptr.add(i * field.count + k) = val;
-                                }
-                            }
-                        }
-                        ValueType::F32 => {
-                            let f32_ptr = ptr as *mut f32;
-                            for k in 0..field.count {
-                                let offset = k * 4;
-                                let val = LittleEndian::read_f32(&src_slice[offset..offset + 4]);
-                                unsafe {
-                                    *f32_ptr.add(i * field.count + k) = val;
-                                }
-                            }
-                        }
-                        ValueType::F64 => {
-                            let f64_ptr = ptr as *mut f64;
-                            for k in 0..field.count {
-                                let offset = k * 8;
-                                let val = LittleEndian::read_f64(&src_slice[offset..offset + 8]);
-                                unsafe {
-                                    *f64_ptr.add(i * field.count + k) = val;
-                                }
-                            }
-                        }
-                    }
+                for (local_idx, point_data) in point_chunk.chunks_exact(point_step).enumerate() {
+                    decode_point(point_start + local_idx, point_data, &col_ptrs);
                 }
             });
 
+        for (local_idx, point_data) in remainder_data.chunks_exact(point_step).enumerate() {
+            decode_point(parallel_points + local_idx, point_data, &col_ptrs);
+        }
+
         Ok(())
+    }
+}
+
+#[inline]
+fn decode_point(
+    i: usize,
+    point_data: &[u8],
+    col_ptrs: &[(&crate::layout::FieldLayout, SyncPtr, usize, ValueType)],
+) {
+    for (field, ptr_wrapper, len, vtype) in col_ptrs {
+        let ptr = ptr_wrapper.0;
+
+        if i >= *len {
+            continue;
+        }
+
+        let field_offset_in_point = field.offset;
+        let src_slice = &point_data[field_offset_in_point..field_offset_in_point + field.size];
+
+        match vtype {
+            ValueType::U8 => {
+                let u8_ptr = ptr;
+                for (k, value) in src_slice.iter().copied().enumerate().take(field.count) {
+                    unsafe {
+                        *u8_ptr.add(i * field.count + k) = value;
+                    }
+                }
+            }
+            ValueType::I8 => {
+                let i8_ptr = ptr as *mut i8;
+                for (k, value) in src_slice.iter().copied().enumerate().take(field.count) {
+                    unsafe {
+                        *i8_ptr.add(i * field.count + k) = value as i8;
+                    }
+                }
+            }
+            ValueType::U16 => {
+                let u16_ptr = ptr as *mut u16;
+                for k in 0..field.count {
+                    let offset = k * 2;
+                    let val = LittleEndian::read_u16(&src_slice[offset..offset + 2]);
+                    unsafe {
+                        *u16_ptr.add(i * field.count + k) = val;
+                    }
+                }
+            }
+            ValueType::I16 => {
+                let i16_ptr = ptr as *mut i16;
+                for k in 0..field.count {
+                    let offset = k * 2;
+                    let val = LittleEndian::read_i16(&src_slice[offset..offset + 2]);
+                    unsafe {
+                        *i16_ptr.add(i * field.count + k) = val;
+                    }
+                }
+            }
+            ValueType::U32 => {
+                let u32_ptr = ptr as *mut u32;
+                for k in 0..field.count {
+                    let offset = k * 4;
+                    let val = LittleEndian::read_u32(&src_slice[offset..offset + 4]);
+                    unsafe {
+                        *u32_ptr.add(i * field.count + k) = val;
+                    }
+                }
+            }
+            ValueType::I32 => {
+                let i32_ptr = ptr as *mut i32;
+                for k in 0..field.count {
+                    let offset = k * 4;
+                    let val = LittleEndian::read_i32(&src_slice[offset..offset + 4]);
+                    unsafe {
+                        *i32_ptr.add(i * field.count + k) = val;
+                    }
+                }
+            }
+            ValueType::F32 => {
+                let f32_ptr = ptr as *mut f32;
+                for k in 0..field.count {
+                    let offset = k * 4;
+                    let val = LittleEndian::read_f32(&src_slice[offset..offset + 4]);
+                    unsafe {
+                        *f32_ptr.add(i * field.count + k) = val;
+                    }
+                }
+            }
+            ValueType::F64 => {
+                let f64_ptr = ptr as *mut f64;
+                for k in 0..field.count {
+                    let offset = k * 8;
+                    let val = LittleEndian::read_f64(&src_slice[offset..offset + 8]);
+                    unsafe {
+                        *f64_ptr.add(i * field.count + k) = val;
+                    }
+                }
+            }
+        }
     }
 }

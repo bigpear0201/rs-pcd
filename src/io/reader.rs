@@ -104,13 +104,7 @@ impl<R: BufRead> PcdReader<R> {
 
     pub fn read_all(mut self) -> Result<PointBlock> {
         let points = self.header.points;
-        let schema: Vec<_> = self
-            .layout
-            .fields
-            .iter()
-            .map(|f| (f.name.clone(), f.type_))
-            .collect();
-        let mut block = PointBlock::new(&schema, points);
+        let mut block = PointBlock::from_layout_fields(&self.layout.fields, points);
 
         match &mut self.source {
             InputSource::Reader(reader) => match self.header.data {
